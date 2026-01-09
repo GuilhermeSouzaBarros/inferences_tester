@@ -1,15 +1,8 @@
-import os, re
-import pandas as pd, numpy as np, cv2
+import os, date
+import cv2
 
 import fiftyone.zoo as foz
 from ultralytics import YOLO
-
-os.makedirs("inference_output", exist_ok=True)
-
-DIR_OUTPUT = "inference_output/yolo"
-os.makedirs(DIR_OUTPUT, exist_ok=True)
-
-DATASET = foz.load_zoo_dataset("coco-2017", split="validation")
 
 class HandlerYolo:
     def __init__(self):
@@ -25,6 +18,13 @@ class HandlerYolo:
 
         self.threshold_iou = 0.5
         self.threshold_confidence = 0.25
+        
+        os.makedirs("inference_output", exist_ok=True)
+
+        self.DIR_OUTPUT = "inference_output/yolo/" + str(date.today())
+        os.makedirs(self.DIR_OUTPUT, exist_ok=True)
+
+        self.DATASET = foz.load_zoo_dataset("coco-2017", split="validation")
 
     def __del__(self):
         self.output_close()
@@ -33,7 +33,6 @@ class HandlerYolo:
         if self.result_output_file is not None:
             self.result_output_file.close()
             self.result_output_file = None
-            print("File closed")
 
     def load_next_model(self) -> bool:
         self.model_index += 1
@@ -41,10 +40,11 @@ class HandlerYolo:
 
         if self.model_index < len(self.model_names):
             model_name = self.model_names[self.model_index]
+            del(self.model_current)
             self.model_current = YOLO(model_name)
             print(f"\nCurrent Model: {model_name}")
 
-            output_path = f"{DIR_OUTPUT}/{model_name.replace(".", "_")}.csv"
+            output_path = f"{self.DIR_OUTPUT}/{model_name.replace('.', '_')}.csv"
             self.result_output_file = open(output_path, "w")
             self.result_output_file.write(
                 "path,num_detections,num_ground_truth," +
@@ -62,15 +62,15 @@ class HandlerYolo:
     def before_inference(self) -> None:
         self.sample_file = None
         while self.sample_file is None:
-            self.sample = np.random.choice(DATASET)
+            self.sample = self.DATASET.take(1).first()
             if self.sample["ground_truth"] is None:
                 continue
             sample_path = self.sample["filepath"]
             self.sample_file = cv2.imread(sample_path)
-        print(f"\tLoaded image: {sample_path}")
+        print(f"\tLoaded image: {sample_path}", end="")
         
     def inference(self) -> None:
-        print(f"\tDetecting objects in image...")
+        print(f"\tDetecting objects in image...", end="")
         self.result = self.model_current.predict(
             self.sample_file,
             conf=self.threshold_confidence,
@@ -86,14 +86,16 @@ class HandlerYolo:
                 # YOLO retorna boxes normalizados (0-1)
                 x1, y1, x2, y2 = box.xyxyn[0].cpu().numpy()
                 class_id = int(box.cls[0].cpu().numpy())
+                class_name = self.DATASET.default_classes[class_id]
+                
                 confidence = float(box.conf[0].cpu().numpy())
-                detections.append([class_id, x1, y1, x2, y2, confidence])
+                detections.append([class_name, x1, y1, x2, y2, confidence])
         
         ground_truth = self.sample["ground_truth"]
         metricas = self.calcular_metricas(detections, ground_truth)
         
         self.result_output_file.write(
-            f"{self.sample["filepath"]},"+
+            f"{self.sample['filepath']},"+
             f"{metricas['num_detections']},"+
             f"{metricas['num_ground_truth']},"+
             f"{metricas['true_positives']},"+
@@ -104,7 +106,7 @@ class HandlerYolo:
             f"{metricas['mAP']}\n"
         )
 
-        print(f"\tResult written\n")
+        print(f"\tResult written {metricas['false_positives']}/{metricas['num_ground_truth']}", end="")
 
 
 
@@ -188,18 +190,19 @@ class HandlerYolo:
         # Converter ground truth para formato (x1, y1, x2, y2) normalizado
         gt_boxes = []
         for gt in ground_truth_labels["detections"]:
-            class_id = gt["id"]
+            class_name = gt["label"]
+            
             x1, y1, x2, y2 = gt["bounding_box"]
-            gt_boxes.append([class_id, x1, y1, x1+x2, y1+y2])
+            gt_boxes.append([class_name, x1, y1, x1+x2, y1+y2])
         
         # Converter detecções para formato normalizado (assumindo que já estão)
         # YOLO retorna boxes em formato (x1, y1, x2, y2) normalizado
         det_boxes = []
         for det in detections:
-            class_id = det[0]
+            class_name = det[0]
             x1, y1, x2, y2 = det[1:5]
             confidence = det[5] if len(det) > 5 else 1.0
-            det_boxes.append([class_id, x1, y1, x2, y2, confidence])
+            det_boxes.append([class_name, x1, y1, x2, y2, confidence])
         
         # Ordenar detecções por confiança (maior primeiro)
         det_boxes.sort(key=lambda x: x[5], reverse=True)
@@ -221,8 +224,8 @@ class HandlerYolo:
                 gt_class, gt_x1, gt_y1, gt_x2, gt_y2 = gt
                 
                 # Só considerar match se a classe for a mesma
-                #if det_class != gt_class:
-                #    continue
+                if det_class != gt_class:
+                    continue
                 
                 iou = HandlerYolo.calcular_iou([det_x1, det_y1, det_x2, det_y2], [gt_x1, gt_y1, gt_x2, gt_y2])
                 
@@ -239,7 +242,6 @@ class HandlerYolo:
         false_negatives = num_ground_truth - len(matched_gt)
         
         # Calcular precision e recall
-        print("\t", true_positives, ":", num_detections, "/", num_ground_truth)
         precision = true_positives / num_detections if num_detections > 0 else 0.0
         recall = true_positives / num_ground_truth if num_ground_truth > 0 else 0.0
         
@@ -257,14 +259,3 @@ class HandlerYolo:
             'recall': recall,
             'mAP': mAP
         }
-
-
-if __name__ == "__main__":
-    obj = HandlerYolo()
-    
-    while obj.load_next_model():
-        for x in range(10):
-            print(f"\t{x}º Inference")
-            obj.before_inference()
-            obj.inference()
-            obj.after_inference()

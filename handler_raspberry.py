@@ -1,35 +1,23 @@
 import time
 
 try:
-    import RPi.GPIO as GPIO
+    import gpiozero
 except Exception as e:
-    print(f"Erro ao configurar GPIO: {e}")
+    print(f"Erro ao importar GPIO: {e.args[0]}")
 
 class HandlerRaspberry:
     def __init__(self, pin_signal:int=17):
-        self.pin_signal = None
+        self.pin = None
         try:
-            GPIO.setmode(GPIO.BCM)
-            GPIO.setup(pin_signal, GPIO.OUT, initial=GPIO.LOW)
-            print(f"GPIO {pin_signal} configurado com sucesso")
-            self.pin_signal = pin_signal
-            
-        except NameError:
-            pass
+            self.pin = gpiozero.DigitalOutputDevice(pin_signal)
+            self.pin.off()
         except Exception as e:
-            print(f"Erro ao configurar GPIO: {e}")
-
-    def __del__(self):
-        try:
-            GPIO.cleanup()
-        except:
-            pass
+            print("Erro ao iniciar o pino: ", e.args[0])
 
     def send_state_swap(self):
-        if not self.pin_signal: return
-        GPIO.output(self.pin_signal, GPIO.HIGH)
-        time.sleep(0.15)
-        GPIO.output(self.pin_signal, GPIO.LOW)
+        if not self.pin: return
+        self.pin.on()
+        time.sleep(0.050)
+        self.pin.off()
+        time.sleep(0.050)
     
-
-        

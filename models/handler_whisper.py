@@ -31,7 +31,6 @@ class HandlerWhisper:
         if self.result_output_file is not None:
             self.result_output_file.close()
             self.result_output_file = None
-            print("File closed")
 
     def load_next_model(self) -> bool:
         self.model_index += 1
@@ -39,6 +38,7 @@ class HandlerWhisper:
 
         if self.model_index < len(self.model_names):
             model_name = self.model_names[self.model_index]
+            del(self.model_current)
             self.model_current = whisper.load_model(model_name)
             print(f"\nCurrent Model: {model_name}")
 
@@ -60,10 +60,10 @@ class HandlerWhisper:
             self.sample = self.dataset_paths.sample(1)
             sample_path = self.sample["path"].to_list()[0]
             self.sample_file = soundfile.read(self.dataset_path + sample_path, dtype="float32")[0]
-        print(f"\tLoaded audio: {sample_path}")
+        print(f"\tLoaded audio: {sample_path}", end="")
         
     def inference(self) -> None:
-        print(f"\tTranscribing audio...")
+        print(f"\tTranscribing audio...", end="")
         self.result = self.model_current.transcribe(
             self.sample_file,
             language="en",
@@ -79,7 +79,7 @@ class HandlerWhisper:
         self.result_output_file.write(
             f"{sample[0]},{sample[1]},{self.result}\n"
         )
-        print(f"\tResult written\n")
+        print(f"\tResult written {self.result}", end="")
 
     def transcription_format(transcription:str) -> str:
         transcription = transcription.replace(' ', '').lower()
@@ -95,14 +95,3 @@ def converter_numeros_por_extenso(texto:str) -> str:
     for num, extenso in numeros.items():
         texto = re.sub(r'\b' + num + r'\b', extenso, texto)
     return texto
-
-
-if __name__ == "__main__":
-    obj = HandlerWhisper()
-    
-    while obj.load_next_model():
-        for x in range(10):
-            print(f"\t{x}º Inference")
-            obj.before_inference()
-            obj.inference()
-            obj.after_inference()

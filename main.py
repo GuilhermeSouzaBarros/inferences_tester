@@ -26,6 +26,7 @@ if __name__ == "__main__":
             if time.time() - interval_last > INFERENCE.TIME_ACTIVE:
                 print(f"Interval started ({INFERENCE.TIME_INTERVAL}s)")
                 time.sleep(INFERENCE.TIME_INTERVAL)
+                interval_last = time.time()
                 print("Interval ended\n")
 
             signal.send_state_swap()
